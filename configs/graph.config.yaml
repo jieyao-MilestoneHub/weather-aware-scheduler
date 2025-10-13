@@ -1,0 +1,34 @@
+# Weather-Aware Scheduler Configuration
+
+# LLM Model Configuration
+model: "gpt-4o-mini"
+temperature: 0.2
+
+# Timeout Settings (in seconds)
+timeouts:
+  tool: 5  # Tool call timeout
+  node: 15  # Node execution timeout
+
+# Retry Configuration
+retries:
+  tool: 2  # Tool call retries
+  llm: 1  # LLM call retries
+
+# Weather & Conflict Thresholds
+thresholds:
+  rain_prob: 60  # Rain probability threshold (%) to trigger adjustments
+  conflict_window: 30  # Minutes buffer for conflict detection
+
+# Feature Flags
+feature_flags:
+  providers: "mock"  # Options: "mock" | "mcp"
+  enable_tracing: false  # Enable LangSmith tracing (requires API key)
+  enable_rag_venues: false  # Enable RAG-based venue suggestions (future)
+
+# Default Values
+defaults:
+  duration_min: 60  # Default meeting duration in minutes
+  time_mappings:
+    afternoon: 14  # 2pm
+    morning: 9  # 9am
+    evening: 18  # 6pm
