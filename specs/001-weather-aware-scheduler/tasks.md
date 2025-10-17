@@ -28,7 +28,7 @@
 - [x] T004 [P] Configure mypy for type checking in `pyproject.toml`: strict=true, python_version="3.11"
 - [x] T005 [P] Configure pytest in `pyproject.toml`: testpaths=["tests"], addopts="--cov=src --cov-report=term-missing"
 - [x] T006 [P] Setup pre-commit hooks: create `.pre-commit-config.yaml` with ruff format, ruff check, mypy, pytest -q
-- [x] T007 [P] Create `configs/graph.config.yaml` with defaults: model="gpt-4o-mini", temperature=0.2, timeouts(tool=5s, node=15s), retries(tool=2, llm=1), thresholds(rain_prob=60), feature_flags(providers="mock")
+- [x] T007 [P] Create `configs/graph.config.yaml` with defaults: model="gpt-4o-mini", temperature=0.2, timeouts(tool=5s, node=15s), retries(tool=2, llm=1, retry_delay_seconds=2), thresholds(rain_prob=60), feature_flags(providers="mock") (addresses analysis finding U2)
 - [x] T008 [P] Create `configs/.env.example` with placeholders: OPENAI_API_KEY, LANGSMITH_API_KEY, LANGSMITH_PROJECT, DEFAULT_CITY
 - [x] T009 [P] Create `.gitignore`: include `.env`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `.coverage`, `.mypy_cache/`, `*.egg-info/`, `dist/`, `build/`
 
@@ -42,32 +42,32 @@
 
 ### Shared Data Models
 
-- [ ] T010 [P] Create `src/models/__init__.py` with exports for all model classes
-- [ ] T011 [P] Create `src/models/state.py`: implement SchedulerState (LangGraph state model) with fields: city (str|None), dt (datetime|None), duration_min (int|None), attendees (list[str]), weather (dict|None), conflicts (list), proposed (list), error (str|None), clarification_needed (str|None), no_conflicts (bool)
-- [ ] T012 [P] Create `src/models/entities.py`: implement Slot (city, datetime, duration, attendees, description), WeatherCondition (prob_rain 0-100, risk_category enum, description), CalendarEvent (event_id, attendees, city, datetime, duration, reason, notes, status), Conflict (conflicting_event_id, conflicting_time, duration, next_available, candidates list)
-- [ ] T013 [P] Create `src/models/outputs.py`: implement PolicyDecision (action enum, reason, notes, adjustments dict), EventSummary (status enum, summary_text, reason, notes, alternatives optional)
-- [ ] T014 Add Pydantic v2 field validators to entities.py: datetime>=now(), duration 5-480 minutes, prob_rain 0-100, non-empty city strings
+- [x] T010 [P] Create `src/models/__init__.py` with exports for all model classes
+- [x] T011 [P] Create `src/models/state.py`: implement SchedulerState (LangGraph state model) with fields: city (str|None), dt (datetime|None), duration_min (int|None), attendees (list[str]), description (str|None), weather (dict|None), conflicts (list), proposed (list), error (str|None), clarification_needed (str|None), no_conflicts (bool) (addresses analysis finding I1)
+- [x] T012 [P] Create `src/models/entities.py`: implement Slot (city, datetime, duration, attendees, description), WeatherCondition (prob_rain 0-100, risk_category enum, description), CalendarEvent (event_id, attendees, city, datetime, duration, reason, notes, status), Conflict (conflicting_event_id, conflicting_time, duration, next_available, candidates list)
+- [x] T013 [P] Create `src/models/outputs.py`: implement PolicyDecision (action enum, reason, notes, adjustments dict), EventSummary (status enum, summary_text, reason, notes, alternatives optional)
+- [x] T014 Add Pydantic v2 field validators to entities.py: datetime>=now(), duration 5-480 minutes, prob_rain 0-100, non-empty city strings
 
 ### Tool Interfaces & Mock Implementations
 
-- [ ] T015 [P] Create `src/tools/__init__.py` with exports for tool classes
-- [ ] T016 [P] Create `src/tools/base.py`: define WeatherTool abstract base class with @abstractmethod get_forecast(city: str, dt: datetime) -> WeatherCondition
-- [ ] T017 Create `src/tools/base.py`: define CalendarTool abstract base class with @abstractmethod find_free_slot(dt: datetime, duration_min: int) -> dict and @abstractmethod create_event(**kwargs) -> CalendarEvent (same file, depends on T016)
-- [ ] T018 Create `src/tools/mock_weather.py`: implement MockWeatherTool(WeatherTool) with keyword detection ("rain" → prob_rain=70) and time window rules (Friday 14:00-16:00 → prob_rain=65, else prob_rain=15)
-- [ ] T019 Create `src/tools/mock_calendar.py`: implement MockCalendarTool(CalendarTool) with predefined conflicts (Friday 15:00 30min blocked), find_free_slot() checks conflicts and generates 3 candidates, create_event() returns mock event_id and summary
+- [x] T015 [P] Create `src/tools/__init__.py` with exports for tool classes
+- [x] T016 [P] Create `src/tools/base.py`: define WeatherTool abstract base class with @abstractmethod get_forecast(city: str, dt: datetime) -> WeatherCondition
+- [x] T017 Create `src/tools/base.py`: define CalendarTool abstract base class with @abstractmethod find_free_slot(dt: datetime, duration_min: int) -> dict and @abstractmethod create_event(**kwargs) -> CalendarEvent (same file, depends on T016)
+- [x] T018 Create `src/tools/mock_weather.py`: implement MockWeatherTool(WeatherTool) with keyword detection ("rain" → prob_rain=70) and time window rules (Friday 14:00-16:00 → prob_rain=65, else prob_rain=15)
+- [x] T019 Create `src/tools/mock_calendar.py`: implement MockCalendarTool(CalendarTool) with predefined conflicts (Friday 15:00 30min blocked), find_free_slot() checks conflicts and generates 3 candidates, create_event() returns mock event_id and summary
 
 ### Shared Services & Utilities
 
-- [ ] T020 [P] Create `src/services/__init__.py` with exports for service functions
-- [ ] T021 [P] Create `src/lib/__init__.py` with exports for utility functions
-- [ ] T022 [P] Create `src/lib/config.py`: implement load_config() to read graph.config.yaml and .env using python-dotenv and pyyaml
-- [ ] T023 [P] Create `src/lib/retry.py`: implement @retry decorator with exponential backoff, configurable max_attempts and timeout
-- [ ] T024 [P] Create `src/lib/logging_utils.py`: setup structured logging with log levels, file handlers (logs/errors.log), and console output
+- [x] T020 [P] Create `src/services/__init__.py` with exports for service functions
+- [x] T021 [P] Create `src/lib/__init__.py` with exports for utility functions
+- [x] T022 [P] Create `src/lib/config.py`: implement load_config() to read graph.config.yaml and .env using python-dotenv and pyyaml
+- [x] T023 [P] Create `src/lib/retry.py`: implement @retry decorator with exponential backoff, configurable max_attempts and timeout
+- [x] T024 [P] Create `src/lib/logging_utils.py`: setup structured logging with log levels, file handlers (logs/errors.log), and console output
 
 ### Graph Foundation
 
-- [ ] T025 [P] Create `src/graph/__init__.py` with exports for graph components
-- [ ] T026 Create `src/graph/builder.py`: implement build_graph() function that constructs StateGraph with 6 node placeholders (intent_and_slots, check_weather, find_free_slot, confirm_or_adjust, create_event, error_recovery) and basic conditional edges, returns compiled graph
+- [x] T025 [P] Create `src/graph/__init__.py` with exports for graph components
+- [x] T026 Create `src/graph/builder.py`: implement build_graph() function that constructs StateGraph with 6 node placeholders (intent_and_slots, check_weather, find_free_slot, confirm_or_adjust, create_event, error_recovery) and basic conditional edges, returns compiled graph
 
 **Checkpoint**: Foundation ready - all shared infrastructure in place, tools and models available, graph structure defined
 
@@ -134,6 +134,7 @@
 
 - [ ] T050 [US2] Implement `src/graph/nodes.py`: create check_weather_node(state: SchedulerState) -> SchedulerState that calls WeatherTool.get_forecast(city, dt) with retry decorator, stores result in state.weather, determines rain_risk (>=60 "high", 30-60 "moderate", <30 "low"), gracefully degrades if tool fails (set weather=None, log warning) (same file as T038)
 - [ ] T051 [US2] Implement `src/graph/nodes.py`: create confirm_or_adjust_node(state: SchedulerState) -> SchedulerState with policy logic: if high rain risk (>60%) generate time shift ±1-2h or indoor venue suggestion, if moderate rain (30-60%) add notes "Bring umbrella", if no issues create PolicyDecision with action="create", return state with decision (same file as T038)
+- [ ] T051a [US2] Create `src/services/policy.py`: implement generate_time_shift_suggestion(dt: datetime, weather: WeatherCondition) -> dict that tries time shifts in order: +2h, -2h, +1h, -1h, returns first shift with acceptable weather (<60% rain); implement generate_indoor_venue_suggestion(city: str, input_text: str) -> str that checks for outdoor keywords (park, beach, outdoor) in input and returns generic indoor venue suggestion if detected (addresses analysis finding C1)
 - [ ] T052 [US2] Implement `src/graph/edges.py`: create conditional_edge_from_weather(state: SchedulerState) -> str that routes to "find_free_slot" after weather check regardless of result (graceful degradation) (same file as T040)
 - [ ] T053 [US2] Update `src/graph/builder.py`: wire check_weather_node and confirm_or_adjust_node into graph, ensure weather check happens after intent_and_slots and before conflict check
 - [ ] T054 [US2] Update `src/services/formatter.py`: add formatting for weather-adjusted events with ⚠ icon, display original time vs adjusted time, include weather reasoning and notes prominently
@@ -166,6 +167,7 @@
 
 - [ ] T059 [US3] Implement `src/graph/nodes.py`: create find_free_slot_node(state: SchedulerState) -> SchedulerState that calls CalendarTool.find_free_slot(dt, duration_min) with retry, if conflict stores in state.conflicts with candidates, if available sets no_conflicts=True, gracefully degrades if tool fails (same file as T038)
 - [ ] T060 [US3] Update `src/graph/nodes.py`: enhance confirm_or_adjust_node to handle conflicts: if state.conflicts present, create PolicyDecision with action="propose_candidates", extract top 3 from state.conflicts.candidates, include duration info for each candidate (modifies T051)
+- [ ] T060a [US3] Implement interactive slot selection in `src/cli/main.py`: when PolicyDecision contains action="propose_candidates", present 3 options to user with Rich table, accept user input (1-3 or 'cancel'), update state with selected slot and re-invoke graph with confirmed time (addresses FR-014)
 - [ ] T061 [US3] Implement `src/graph/edges.py`: create conditional_edge_from_conflict(state: SchedulerState) -> str that routes to "confirm_or_adjust" if conflicts detected or weather high risk, else routes to "create_event" (same file as T040)
 - [ ] T062 [US3] Update `src/graph/builder.py`: ensure graph flow includes conflict check between weather and decision: intent_and_slots → check_weather → find_free_slot → confirm_or_adjust → create_event
 - [ ] T063 [US3] Update `src/services/formatter.py`: add Rich table formatting for conflict alternatives showing 3 rows with columns: option number (1-3), time, duration available, format as interactive selection prompt
@@ -232,7 +234,7 @@
 
 ### Implementation for Error Handling
 
-- [ ] T081 Implement `src/graph/nodes.py`: create error_recovery_node(state: SchedulerState) -> SchedulerState with logic: if clarification_needed generate precise follow-up question (one-shot), if tool failures add degradation notes, if parsing fails >2 attempts return error summary (same file as T038)
+- [ ] T081 Implement `src/graph/nodes.py`: create error_recovery_node(state: SchedulerState) -> SchedulerState with logic: if clarification_needed generate precise follow-up question with examples (one-shot attempt), on second failure provide format examples and return error summary "Unable to parse - please provide time (e.g. 2pm, 14:00), location (e.g. Taipei), duration (e.g. 60min)", if tool failures add degradation notes (same file as T038) (addresses analysis finding U1)
 - [ ] T082 Implement `src/graph/edges.py`: create conditional_edge_from_error(state: SchedulerState) -> str that routes back to "intent_and_slots" if clarification answered, to "create_event" if degraded, to END if fatal error (same file as T040)
 - [ ] T083 Update `src/graph/builder.py`: wire error_recovery_node into graph with edges from all nodes that can fail (intent_and_slots, check_weather, find_free_slot), ensure loop-back for clarification
 - [ ] T084 Update `src/tools/mock_weather.py`: add raise_on_error parameter for testing, if True raise WeatherServiceError("Service unavailable")
@@ -411,8 +413,9 @@ With multiple developers:
 - **Test-first mandatory per constitution**: Write tests, see them fail, then implement (Red-Green-Refactor)
 - **Commit after each task or logical group** (e.g., all US1 tests, all US1 services)
 - **Stop at any checkpoint to validate story independently** - don't proceed if tests failing
-- **Total task count**: 110 tasks across 8 phases
+- **Total task count**: 112 tasks across 8 phases (added T051a for policy helpers, T060a for slot selection)
 - **Estimated MVP completion**: ~40 tasks (T001-T047, through Phase 3 = User Story 1)
+- **Analysis-driven improvements**: Tasks updated based on /speckit.analyze findings (C1, U1, U2, I1, FR-014)
 - **Constitution compliance**: 100% coverage for critical paths (T029-T033, T048-T049, T057-T058, T076-T077), <5s test suite (validated in T095), test-first approach enforced
 
 ---

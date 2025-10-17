@@ -30,7 +30,7 @@ dev = [
 ]
 
 [project.scripts]
-weather-scheduler = "cli.main:app"
+weather-scheduler = "src.cli.main:app"
 
 [build-system]
 requires = ["setuptools>=68.0.0", "wheel"]
