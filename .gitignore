@@ -77,3 +77,4 @@ datasets/*.jsonl
 
 # pyenv
 .python-version
+coverage.xml
