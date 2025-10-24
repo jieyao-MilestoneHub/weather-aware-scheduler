@@ -71,3 +71,31 @@ class MockWeatherTool(WeatherTool):
             risk_category=RiskCategory.LOW,
             description=description
         )
+
+    def get_weather(self, city: str, dt: dt_type) -> dict:
+        """Get simplified weather data as dict for testing.
+
+        Args:
+            city: City name
+            dt: Target datetime
+
+        Returns:
+            Dict with 'condition', 'temperature', and 'city' keys
+        """
+        # Use get_forecast to determine conditions
+        forecast = self.get_forecast(city, dt)
+
+        # Map risk to condition
+        if forecast.risk_category == RiskCategory.HIGH:
+            condition = "rain"
+        else:
+            condition = "clear"
+
+        # Mock temperature (20-30°C)
+        temperature = 25
+
+        return {
+            "condition": condition,
+            "temperature": temperature,
+            "city": city
+        }

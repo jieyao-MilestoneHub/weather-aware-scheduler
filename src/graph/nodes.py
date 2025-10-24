@@ -1,5 +1,6 @@
 """LangGraph node implementations for the scheduler workflow."""
 
+from datetime import datetime as dt_type, timedelta
 from typing import Any
 
 from src.models.entities import RiskCategory, Slot
@@ -96,16 +97,23 @@ def check_weather_node(state: SchedulerState) -> SchedulerState:
 
 
 def find_free_slot_node(state: SchedulerState) -> SchedulerState:
-    """Check calendar for conflicts at the requested time.
+    """Check calendar for conflicts and find alternative if needed.
+
+    If rain risk is HIGH or calendar conflict exists, searches for
+    an alternative slot with good weather and no conflicts.
 
     Args:
-        state: Current state with dt and duration_min
+        state: Current state with dt, duration_min, and weather info
 
     Returns:
-        Updated state with conflict info and alternatives
+        Updated state with conflict info and suggested_time if needed
     """
     if not _calendar_tool:
         state["error"] = "Calendar tool not configured"
+        return state
+
+    if not _weather_tool:
+        state["error"] = "Weather tool not configured"
         return state
 
     # Skip if we have previous errors
@@ -113,7 +121,8 @@ def find_free_slot_node(state: SchedulerState) -> SchedulerState:
         return state
 
     try:
-        result = _calendar_tool.find_free_slot(state["dt"], state["duration_min"])
+        # Check if requested slot has conflicts
+        result = _calendar_tool.check_slot_availability(state["dt"], state["duration_min"])
 
         if result["status"] == "conflict":
             state["no_conflicts"] = False
@@ -123,10 +132,69 @@ def find_free_slot_node(state: SchedulerState) -> SchedulerState:
             state["no_conflicts"] = True
             state["conflicts"] = []
 
-    except CalendarServiceError as e:
-        state["error"] = f"Calendar service error: {str(e)}"
+        # Check if we need to find alternative due to weather or conflicts
+        rain_risk = state.get("rain_risk", "low")
+        needs_alternative = (
+            rain_risk == RiskCategory.HIGH.value or
+            not state.get("no_conflicts", True)
+        )
+
+        if needs_alternative:
+            # Search for alternative slot with good weather and no conflicts
+            suggested = _find_weather_aware_slot(
+                state["dt"],
+                state["duration_min"],
+                search_hours=8
+            )
+            if suggested:
+                state["suggested_time"] = suggested
+
+    except (CalendarServiceError, WeatherServiceError) as e:
+        state["error"] = f"Service error: {str(e)}"
 
     return state
+
+
+def _find_weather_aware_slot(
+    start_dt: dt_type,
+    duration_min: int,
+    search_hours: int = 8
+) -> dt_type | None:
+    """Find next slot with good weather and no calendar conflicts.
+
+    Args:
+        start_dt: Starting datetime to search from
+        duration_min: Required duration in minutes
+        search_hours: How many hours to search ahead
+
+    Returns:
+        Suggested datetime, or None if none found
+    """
+    # Search in 30-minute increments
+    current = start_dt
+    end_search = start_dt + timedelta(hours=search_hours)
+
+    while current < end_search:
+        # Check weather at this slot
+        try:
+            weather = _weather_tool.get_forecast("", current)  # City not needed for mock
+            has_good_weather = weather.risk_category != RiskCategory.HIGH
+
+            # Check calendar availability
+            result = _calendar_tool.check_slot_availability(current, duration_min)
+            has_no_conflicts = result["status"] == "available"
+
+            # If both conditions met, return this slot
+            if has_good_weather and has_no_conflicts:
+                return current
+
+        except (WeatherServiceError, CalendarServiceError):
+            pass  # Skip this slot if service errors
+
+        # Move to next 30-minute slot
+        current += timedelta(minutes=30)
+
+    return None
 
 
 def confirm_or_adjust_node(state: SchedulerState) -> SchedulerState:
@@ -257,7 +325,8 @@ def create_event_node(state: SchedulerState) -> SchedulerState:
             status=EventStatus.ADJUSTED,
             summary_text="Event requires adjustment",
             reason=policy_decision["reason"],
-            notes=policy_decision.get("notes")
+            notes=policy_decision.get("notes"),
+            suggested_time=state.get("suggested_time")
         ).model_dump()
 
     return state

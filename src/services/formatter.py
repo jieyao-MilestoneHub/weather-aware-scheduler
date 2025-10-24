@@ -69,27 +69,39 @@ def format_event_summary(summary: EventSummary) -> str:
     return "\n".join(lines)
 
 
-def format_conflict_alternatives(alternatives: list[str]) -> str:
+def format_conflict_alternatives(alternatives: list, duration_min: int = 60) -> Table:
     """
     Format conflict alternatives as Rich table.
-    
+
     Args:
-        alternatives: List of alternative time slot strings
-    
+        alternatives: List of alternative datetimes or strings
+        duration_min: Duration in minutes for the meeting
+
     Returns:
-        Rich-formatted table string
+        Rich Table object for display
     """
-    table = Table(title="Available Time Slots", show_header=True)
-    table.add_column("Option", style="cyan", width=8)
+    from datetime import datetime
+
+    table = Table(title="Available Time Slots", show_header=True, header_style="bold magenta")
+    table.add_column("Option", style="cyan bold", width=8, justify="center")
     table.add_column("Time", style="white")
     table.add_column("Duration Available", style="green")
-    
-    for i, alt in enumerate(alternatives, 1):
-        # Parse alternative string (format: "Friday at 15:30 (60 min available)")
-        parts = alt.split(" (")
-        time_str = parts[0] if parts else alt
-        duration_str = parts[1].rstrip(")") if len(parts) > 1 else "N/A"
-        
+
+    for i, alt in enumerate(alternatives[:3], 1):  # Limit to 3 options
+        if isinstance(alt, datetime):
+            # Format datetime as friendly string
+            time_str = alt.strftime("%A at %I:%M %p")  # e.g., "Friday at 03:30 PM"
+            duration_str = f"{duration_min} min available"
+        elif isinstance(alt, str):
+            # Already formatted string
+            parts = alt.split(" (")
+            time_str = parts[0] if parts else alt
+            duration_str = parts[1].rstrip(")") if len(parts) > 1 else "N/A"
+        else:
+            # Fallback
+            time_str = str(alt)
+            duration_str = "N/A"
+
         table.add_row(str(i), time_str, duration_str)
-    
+
     return table

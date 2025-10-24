@@ -1,0 +1,5 @@
+{"id": "golden-1-sunny", "input": "Friday 2pm Taipei meet Alice 60min", "expected_status": "confirmed", "description": "Sunny path - no conflicts or weather issues"}
+{"id": "golden-2-rainy", "input": "Tomorrow afternoon Taipei coffee rain backup", "expected_status": "adjusted", "description": "Rain detected - should suggest adjustment"}
+{"id": "golden-3-conflict", "input": "Friday 3pm team sync 30min", "expected_status": "conflict", "description": "Calendar conflict - should propose alternatives"}
+{"id": "golden-4-missing", "input": "Meet Alice tomorrow", "expected_status": "error", "description": "Missing information - should request clarification"}
+{"id": "golden-5-failure", "input": "Next Monday 10am review meeting 45min", "expected_status": "confirmed", "description": "Service graceful degradation"}

@@ -3,6 +3,7 @@ import typer
 from rich.console import Console
 from rich import print as rprint
 from src.graph.builder import build_graph
+from src.graph.visualizer import save_visualization
 from src.models.state import SchedulerState
 from src.services.formatter import format_event_summary
 from src.models.outputs import EventSummary
@@ -63,10 +64,41 @@ def schedule(
 
 
 @app.command()
+def visualize(
+    output_dir: str = typer.Option("graph", "--output", "-o", help="Output directory for visualization files")
+):
+    """
+    Generate and save workflow visualization diagrams.
+
+    Creates Mermaid and DOT format diagrams showing the decision flow.
+
+    Examples:
+        weather-scheduler visualize
+        weather-scheduler visualize --output docs/diagrams
+    """
+    try:
+        console.print("[dim]Building scheduler graph...[/dim]")
+        graph = build_graph()
+
+        console.print(f"[dim]Generating visualizations in {output_dir}/...[/dim]")
+        paths = save_visualization(graph, output_dir)
+
+        console.print("[green]✓ Visualizations created successfully![/green]")
+        console.print(f"  • Mermaid: {paths['mermaid']}")
+        console.print(f"  • DOT: {paths['dot']}")
+        console.print("\n[dim]To render DOT file:[/dim]")
+        console.print(f"  dot -Tsvg {paths['dot']} -o {output_dir}/flow.svg")
+
+    except Exception as e:
+        console.print(f"[red]✗ Error generating visualizations: {str(e)}[/red]")
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def version():
     """Show version information."""
     console.print("[bold]Weather-Aware Scheduler[/bold]")
-    console.print("Version: 1.0.0")
+    console.print("Version: 0.1.0")
     console.print("Python CLI for weather-aware meeting scheduling")
 
 

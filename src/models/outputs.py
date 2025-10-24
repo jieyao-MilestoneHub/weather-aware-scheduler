@@ -49,6 +49,10 @@ class EventSummary(BaseModel):
         description="Alternative time slots (if conflict)",
         max_length=3
     )
+    suggested_time: dt_type | None = Field(
+        None,
+        description="Suggested alternative time (weather/conflict adjustment)"
+    )
     event_id: str | None = Field(None, description="Created event ID (if successful)")
 
     class Config:
