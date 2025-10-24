@@ -62,23 +62,37 @@ def conditional_edge_from_policy(state: SchedulerState) -> str:
 
 def conditional_edge_from_error(state: SchedulerState) -> str:
     """
-    Route from error_recovery node based on retry count and error type.
-    
+    Route from error_recovery node based on recovery outcome.
+
+    Implements T082: Conditional routing after error recovery with:
+    - Loop back to intent_and_slots if clarification answered (retry_count == 1)
+    - Proceed to create_event if degraded (service failures cleared)
+    - End if fatal error (event_summary already created)
+
     Args:
         state: Current scheduler state
-    
+
     Returns:
-        Next node name: retry, degrade, or end
+        Next node name: "intent_and_slots" (retry), "create_event" (degrade/end)
     """
     retry_count = state.get("retry_count", 0)
-    
-    # If too many retries, give up
-    if retry_count >= 3:
-        return "create_event"  # Will create error summary
-    
-    # If clarification was provided, retry parsing
-    if state.get("clarification_needed"):
+
+    # If event_summary already created (fatal error), end
+    if state.get("event_summary"):
+        return "create_event"  # Will pass through (summary already set)
+
+    # If error was cleared (graceful degradation), proceed with what we have
+    if not state.get("error") and not state.get("clarification_needed"):
+        # Services degraded but we can continue
+        # Route back to check_weather to continue normal flow
+        if state.get("city") and state.get("dt"):
+            return "check_weather"  # Continue from where we left off
+        else:
+            return "create_event"  # Can't continue, create error summary
+
+    # If clarification needed and first retry, loop back to parse
+    if state.get("clarification_needed") and retry_count < 2:
         return "intent_and_slots"
-    
-    # Otherwise, proceed with degraded service
+
+    # Otherwise (max retries or unrecoverable), end
     return "create_event"

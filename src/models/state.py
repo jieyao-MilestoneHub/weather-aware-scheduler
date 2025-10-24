@@ -31,10 +31,12 @@ class SchedulerState(TypedDict, total=False):
     error: str | None
     clarification_needed: str | None
     retry_count: int
+    degradation_notes: list[str] | None  # Service failure warnings
 
     # Final output
     event_summary: dict[str, Any] | None
     policy_decision: dict[str, Any] | None
+    suggested_time: dt_type | None  # Alternative time suggestion
 
     # Original input
     input_text: str

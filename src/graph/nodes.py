@@ -285,12 +285,23 @@ def create_event_node(state: SchedulerState) -> SchedulerState:
     # Only create if action is CREATE
     if action == ActionType.CREATE.value:
         try:
+            # Prepare notes including any degradation warnings
+            notes_parts = []
+            if policy_decision.get("notes"):
+                notes_parts.append(policy_decision["notes"])
+
+            # Add degradation notes if services failed
+            if state.get("degradation_notes"):
+                notes_parts.extend(state["degradation_notes"])
+
+            combined_notes = "\n".join(notes_parts) if notes_parts else None
+
             event = _calendar_tool.create_event(
                 city=state["city"],
                 dt=state["dt"],
                 duration_min=state["duration_min"],
                 attendees=state["attendees"],
-                notes=policy_decision.get("notes")
+                notes=combined_notes
             )
 
             state["event_summary"] = EventSummary(
@@ -298,7 +309,7 @@ def create_event_node(state: SchedulerState) -> SchedulerState:
                 summary_text=f"Meeting scheduled in {state['city']}",
                 reason=policy_decision["reason"],
                 event_id=event.event_id,
-                notes=event.notes
+                notes=combined_notes or event.notes
             ).model_dump()
 
         except CalendarServiceError as e:
@@ -333,23 +344,123 @@ def create_event_node(state: SchedulerState) -> SchedulerState:
 
 
 def error_recovery_node(state: SchedulerState) -> SchedulerState:
-    """Handle errors and increment retry count.
+    """Handle errors with one-shot clarification and graceful degradation.
+
+    Implements T081: Comprehensive error recovery with:
+    - One-shot clarification for missing/ambiguous input
+    - Graceful degradation for service failures
+    - Format examples on second failure
+    - Maximum 2 retry attempts
 
     Args:
-        state: Current state with error
+        state: Current state with error or clarification_needed
 
     Returns:
-        Updated state with incremented retry_count
+        Updated state with clarification prompt, degradation notes, or error summary
     """
     state["retry_count"] = state.get("retry_count", 0) + 1
 
-    # If too many retries, give up
-    if state["retry_count"] >= 3:
+    # Case 1: Clarification needed (missing required fields)
+    if state.get("clarification_needed"):
+        if state["retry_count"] == 1:
+            # First attempt: Generate precise follow-up question with examples
+            error_msg = state.get("error", "")
+
+            # Build specific clarification based on what's missing
+            clarification_parts = []
+
+            if "time" in error_msg.lower() or "datetime" in error_msg.lower():
+                clarification_parts.append("• Time: (e.g., '2pm', '14:00', 'afternoon')")
+
+            if "location" in error_msg.lower() or "city" in error_msg.lower():
+                clarification_parts.append("• Location: (e.g., 'Taipei', 'New York')")
+
+            if "duration" in error_msg.lower():
+                clarification_parts.append("• Duration: (e.g., '60min', '1 hour', default: 60 minutes)")
+
+            # If no specific fields identified, ask for all
+            if not clarification_parts:
+                clarification_parts = [
+                    "• Time: (e.g., '2pm', '14:00', 'afternoon')",
+                    "• Location: (e.g., 'Taipei', 'New York')",
+                    "• Duration: (optional, default: 60 minutes)"
+                ]
+
+            clarification_text = "Please provide missing information:\n" + "\n".join(clarification_parts)
+            state["clarification_needed"] = clarification_text
+
+        else:
+            # Second failure: Provide complete format example and give up
+            state["event_summary"] = EventSummary(
+                status=EventStatus.ERROR,
+                summary_text="Unable to parse scheduling request",
+                reason="Required information missing after clarification attempt",
+                notes=(
+                    "Please provide a complete request with:\n"
+                    "• Date: Friday, tomorrow, 2025-10-17\n"
+                    "• Time: 2pm, 14:00, afternoon\n"
+                    "• Location: Taipei, New York\n"
+                    "• Duration: 60min, 1 hour (optional)\n"
+                    "• Attendees: meet Alice, with Bob (optional)\n\n"
+                    "Example: 'Friday 2pm Taipei meet Alice 60min'"
+                )
+            ).model_dump()
+            state["clarification_needed"] = None
+
+    # Case 2: Service failures (weather/calendar unavailable)
+    elif state.get("error") and ("service" in state["error"].lower() or "error" in state["error"].lower()):
+        # Check which service failed
+        error_msg = state["error"]
+
+        if "weather" in error_msg.lower():
+            # Weather service failed - degrade gracefully
+            state["error"] = None  # Clear error
+            state["weather"] = None  # Mark as unavailable
+
+            # Add degradation note to be picked up by create_event
+            if not state.get("degradation_notes"):
+                state["degradation_notes"] = []
+            state["degradation_notes"].append(
+                "⚠️ Weather service unavailable - manual weather check recommended"
+            )
+
+        elif "calendar" in error_msg.lower():
+            # Calendar service failed - degrade gracefully
+            state["error"] = None  # Clear error
+            state["no_conflicts"] = True  # Assume no conflicts
+
+            if not state.get("degradation_notes"):
+                state["degradation_notes"] = []
+            state["degradation_notes"].append(
+                "⚠️ Calendar service unavailable - manual conflict check recommended"
+            )
+
+        else:
+            # Generic service error
+            if not state.get("degradation_notes"):
+                state["degradation_notes"] = []
+            state["degradation_notes"].append(
+                f"⚠️ Service error: {error_msg} - proceeding with available information"
+            )
+            state["error"] = None  # Clear error to allow continuation
+
+    # Case 3: Maximum retries exceeded
+    elif state["retry_count"] >= 2:
         state["event_summary"] = EventSummary(
             status=EventStatus.ERROR,
             summary_text="Failed to schedule event after multiple attempts",
             reason=state.get("error", "Unknown error"),
-            notes="Maximum retry attempts exceeded"
+            notes="Maximum retry attempts exceeded. Please check your input and try again."
         ).model_dump()
+        state["error"] = None  # Clear error
+
+    # Case 4: Other errors - generic handling
+    else:
+        # Try to continue with what we have
+        if state.get("error") and state["retry_count"] < 2:
+            state["clarification_needed"] = (
+                f"An error occurred: {state['error']}\n"
+                "Please try rephrasing your request or provide more details."
+            )
 
     return state

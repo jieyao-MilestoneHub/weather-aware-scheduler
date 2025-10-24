@@ -103,12 +103,14 @@ def build_graph() -> Any:
 
     workflow.add_edge("create_event", END)
 
-    # Error recovery edge with conditional routing
+    # Error recovery edge with conditional routing (T083)
+    # Can route to: intent_and_slots (retry parse), check_weather (degraded continue), create_event (end)
     workflow.add_conditional_edges(
         "error_recovery",
         conditional_edge_from_error,
         {
             "intent_and_slots": "intent_and_slots",
+            "check_weather": "check_weather",
             "create_event": "create_event"
         }
     )
