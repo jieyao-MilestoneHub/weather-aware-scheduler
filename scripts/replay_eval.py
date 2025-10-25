@@ -58,7 +58,8 @@ def run_test_case(graph: Any, test_case: dict[str, Any]) -> dict[str, Any]:
         summary_dict = result_state.get("event_summary")
         if summary_dict:
             summary = EventSummary(**summary_dict)
-            actual_status = summary.status.value
+            # status is already a string, not an enum
+            actual_status = summary.status if isinstance(summary.status, str) else summary.status.value
         else:
             actual_status = "no_result"
 
@@ -95,6 +96,21 @@ def print_results(results: list[dict[str, Any]]) -> None:
     Args:
         results: List of test result dictionaries
     """
+    import os
+    import sys
+
+    # Check if we should use ASCII icons (Windows with non-UTF-8 encoding)
+    use_ascii = False
+    if os.environ.get("ASCII_ONLY", "").lower() in ("1", "true", "yes"):
+        use_ascii = True
+    elif sys.platform == "win32":
+        try:
+            encoding = sys.stdout.encoding or ""
+            if "utf" not in encoding.lower():
+                use_ascii = True
+        except (AttributeError, TypeError):
+            use_ascii = True
+
     # Create results table
     table = Table(title="Evaluation Results", show_header=True, header_style="bold magenta")
     table.add_column("Test ID", style="cyan", width=20)
@@ -104,7 +120,7 @@ def print_results(results: list[dict[str, Any]]) -> None:
     table.add_column("Description", width=40)
 
     for result in results:
-        status_icon = "✓" if result["passed"] else "✗"
+        status_icon = "[OK]" if result["passed"] else "[X]" if use_ascii else ("✓" if result["passed"] else "✗")
         status_color = "green" if result["passed"] else "red"
 
         table.add_row(

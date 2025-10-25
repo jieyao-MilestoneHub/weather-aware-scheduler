@@ -1,5 +1,7 @@
 # Weather-Aware Scheduler
 
+> Trying to develop an agent application with spec-kit.
+
 A lightweight, explainable scheduling system that parses natural language inputs, evaluates weather conditions and calendar conflicts, and produces clear, testable scheduling decisions with transparent reasoning.
 
 ## Features

@@ -1,4 +1,6 @@
 """Event summary formatting with Rich console output."""
+import os
+import sys
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -9,43 +11,72 @@ from src.models.outputs import EventSummary
 console = Console()
 
 
+def _use_ascii_icons() -> bool:
+    """
+    Determine if ASCII icons should be used instead of Unicode.
+
+    Returns True for:
+    - Windows console with non-UTF-8 encoding
+    - Explicitly set ASCII_ONLY environment variable
+    """
+    # Check environment variable override
+    if os.environ.get("ASCII_ONLY", "").lower() in ("1", "true", "yes"):
+        return True
+
+    # Check for Windows console encoding issues
+    if sys.platform == "win32":
+        try:
+            # Check if stdout can handle Unicode
+            encoding = sys.stdout.encoding or ""
+            if "utf" not in encoding.lower():
+                return True
+        except (AttributeError, TypeError):
+            return True
+
+    return False
+
+
 def format_event_summary(summary: EventSummary) -> str:
     """
     Format EventSummary as Rich-formatted string for CLI output.
-    
+
     Includes:
-    - Status icons: ✓ (confirmed), ⚠ (adjusted), ✗ (error)
+    - Status icons: ✓/[OK] (confirmed), ⚠/[!] (adjusted), ✗/[X] (error)
     - Color coding
     - Structured layout with reason and notes
-    
+
+    Uses ASCII icons on Windows consoles with non-UTF-8 encoding.
+
     Args:
         summary: EventSummary object to format
-    
+
     Returns:
         Rich-formatted string for display
-    
+
     Examples:
-        >>> summary = EventSummary(status="confirmed", summary_text="Meeting", 
+        >>> summary = EventSummary(status="confirmed", summary_text="Meeting",
         ...                        reason="No conflicts", notes="Clear weather")
         >>> output = format_event_summary(summary)
-        >>> "✓" in output
+        >>> "[OK]" in output or "✓" in output
         True
     """
+    use_ascii = _use_ascii_icons()
+
     # Determine icon and color based on status
     if summary.status == "confirmed":
-        icon = "✓"
+        icon = "[OK]" if use_ascii else "✓"
         color = "green"
         title = "Event Created"
     elif summary.status == "adjusted":
-        icon = "⚠"
+        icon = "[!]" if use_ascii else "⚠"
         color = "yellow"
         title = "Schedule Adjusted"
     elif summary.status == "conflict":
-        icon = "⚠"
+        icon = "[!]" if use_ascii else "⚠"
         color = "yellow"
         title = "Time Conflict Detected"
     else:  # error
-        icon = "✗"
+        icon = "[X]" if use_ascii else "✗"
         color = "red"
         title = "Unable to Schedule"
     

@@ -155,13 +155,20 @@ def save_visualization(graph: Any, output_dir: str = "graph") -> dict[str, str]:
     with open(mermaid_path, "w", encoding="utf-8") as f:
         f.write(mermaid_str)
 
-    # Export to DOT
-    dot_str = export_to_graphviz(graph)
-    dot_path = os.path.join(output_dir, "flow.dot")
-    with open(dot_path, "w", encoding="utf-8") as f:
-        f.write(dot_str)
+    result = {"mermaid": mermaid_path}
 
-    return {
-        "mermaid": mermaid_path,
-        "dot": dot_path
-    }
+    # Export to DOT (optional - requires grandalf)
+    try:
+        dot_str = export_to_graphviz(graph)
+        dot_path = os.path.join(output_dir, "flow.dot")
+        with open(dot_path, "w", encoding="utf-8") as f:
+            f.write(dot_str)
+        result["dot"] = dot_path
+    except ImportError:
+        # grandalf not installed - skip DOT generation
+        pass
+    except Exception:
+        # Other errors - skip DOT generation
+        pass
+
+    return result

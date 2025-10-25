@@ -28,9 +28,12 @@ dev = [
     "types-python-dateutil",
     "types-pyyaml",
 ]
+viz = [
+    "grandalf>=0.8",  # For DOT/Graphviz visualization generation
+]
 
 [project.scripts]
-weather-scheduler = "src.cli.main:app"
+weather-scheduler = "src.cli.main:main"
 
 [build-system]
 requires = ["setuptools>=68.0.0", "wheel"]
