@@ -27,40 +27,61 @@ ATTENDEE_PATTERN = re.compile(
 def parse_natural_language(input_text: str) -> Slot:
     """
     Parse natural language scheduling request into structured Slot.
-    
+
     Args:
         input_text: Natural language input (e.g., "Friday 2pm Taipei meet Alice 60min")
-    
+
     Returns:
         Slot object with extracted fields
-    
+
     Raises:
         ParseError: If parsing fails or required fields missing
-    
+
     Examples:
         >>> parse_natural_language("Friday 14:00 Taipei meet Alice 60 min")
         Slot(city='Taipei', datetime=..., duration=60, attendees=['Alice'], ...)
     """
     if not input_text or not input_text.strip():
         raise ParseError("Input cannot be empty")
-    
+
     input_text = input_text.strip()
-    
-    # Extract city (look for capitalized words that could be locations)
-    city = _extract_city(input_text)
-    
-    # Extract datetime
-    dt = _extract_datetime(input_text)
-    
-    # Extract duration
+
+    # Collect all parsing errors instead of failing immediately
+    errors = []
+    city = None
+    dt = None
+    duration = 60  # Default
+    attendees = []
+    description = ""
+
+    # Try to extract city
+    try:
+        city = _extract_city(input_text)
+    except ParseError as e:
+        errors.append(str(e))
+
+    # Try to extract datetime
+    try:
+        dt = _extract_datetime(input_text)
+        # Check if this is a default/generic time (no explicit time reference in input)
+        if not _has_explicit_time_reference(input_text):
+            errors.append("Time/datetime not found in input. Please specify when (e.g., 'tomorrow 2pm', 'Friday 14:00').")
+    except ParseError as e:
+        errors.append(str(e))
+
+    # If we have errors, raise combined error message
+    if errors:
+        raise ParseError(" ".join(errors))
+
+    # Extract duration (optional, has default)
     duration = _extract_duration(input_text)
-    
-    # Extract attendees
+
+    # Extract attendees (optional)
     attendees = _extract_attendees(input_text)
-    
-    # Extract description (simplified: use first few words or meeting context)
+
+    # Extract description (optional)
     description = _extract_description(input_text)
-    
+
     return Slot(
         city=city,
         datetime=dt,
@@ -75,20 +96,68 @@ def _extract_city(text: str) -> str:
     # Look for known cities or capitalize words (simple heuristic)
     # Common cities pattern
     cities = ['Taipei', 'Tokyo', 'New York', 'London', 'Paris', 'Berlin', 'Sydney']
-    
+
     for city in cities:
         if city.lower() in text.lower():
             return city
-    
-    # Fallback: look for capitalized words
+
+    # Fallback: look for capitalized words, but exclude common person names after "meet" or "with"
     words = text.split()
-    for word in words:
-        if word[0].isupper() and len(word) > 2 and word.isalpha():
-            # Exclude day names
-            if word.lower() not in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'tomorrow', 'today']:
+    # First, identify words that are likely attendee names (after "meet" or "with")
+    # Also mark "Meet"/"meet" itself as not a city
+    attendee_indices = set()
+    excluded_words = {'meet', 'with', 'meeting'}  # Words that are not cities
+
+    for i, word in enumerate(words):
+        if word.lower() in ['meet', 'with']:
+            # Mark next capitalized words as potential attendees, not cities
+            j = i + 1
+            while j < len(words) and j < len(words) and len(words[j]) > 0 and words[j][0].isupper() and words[j].isalpha():
+                attendee_indices.add(j)
+                j += 1
+
+    # Now look for capitalized words that are NOT attendee names or excluded words
+    for i, word in enumerate(words):
+        if i not in attendee_indices and word[0].isupper() and len(word) > 2 and words[i].isalpha():
+            # Exclude day names, meeting words, and action verbs
+            if word.lower() not in excluded_words | {'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'tomorrow', 'today'}:
                 return word
-    
-    raise ParseError("City not found in input. Please specify a location.")
+
+    raise ParseError("City/location not found in input. Please specify a location.")
+
+
+def _has_explicit_time_reference(text: str) -> bool:
+    """Check if input contains explicit time/date reference.
+
+    Returns True if input has words like tomorrow, Friday, 2pm, etc.
+    Returns False if input has no time reference (will use default).
+    """
+    time_keywords = [
+        'tomorrow', 'today', 'tonight', 'morning', 'afternoon', 'evening', 'night',
+        'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+        'next', 'this', 'am', 'pm',
+    ]
+
+    text_lower = text.lower()
+
+    # Check for time keywords
+    if any(keyword in text_lower for keyword in time_keywords):
+        return True
+
+    # Check for time patterns like "2pm", "14:00", "2:30"
+    import re
+    time_patterns = [
+        r'\d{1,2}:\d{2}',  # 14:00, 2:30
+        r'\d{1,2}pm',      # 2pm, 14pm
+        r'\d{1,2}am',      # 2am, 10am
+        r'\d{4}-\d{2}-\d{2}',  # 2025-10-17
+    ]
+
+    for pattern in time_patterns:
+        if re.search(pattern, text_lower):
+            return True
+
+    return False
 
 
 def _extract_datetime(text: str) -> datetime:

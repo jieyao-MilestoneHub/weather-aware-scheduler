@@ -36,7 +36,7 @@ class CalendarTool(ABC):
     """
 
     @abstractmethod
-    def find_free_slot(self, dt: dt_type, duration_min: int) -> dict:
+    def check_slot_availability(self, dt: dt_type, duration_min: int) -> dict:
         """Check if requested time slot is available.
 
         Args:
@@ -50,6 +50,34 @@ class CalendarTool(ABC):
                 "conflict_details": {...},  # if status="conflict"
                 "next_available": datetime,  # next free slot
                 "candidates": [datetime, datetime, datetime]  # top 3 alternatives
+            }
+
+        Raises:
+            CalendarServiceError: If service is unavailable (triggers retry logic)
+        """
+        pass
+
+    @abstractmethod
+    def find_free_slot(
+        self,
+        start_search: dt_type,
+        duration_min: int,
+        search_window_hours: int = 8
+    ) -> dict:
+        """Find the next available free slot within search window.
+
+        Args:
+            start_search: Start of search window
+            duration_min: Required duration in minutes
+            search_window_hours: How many hours to search
+
+        Returns:
+            Dictionary with structure:
+            {
+                "status": "available" | "conflict",
+                "conflict_details": dict | None,
+                "next_available": datetime | None,
+                "candidates": list[datetime]
             }
 
         Raises:

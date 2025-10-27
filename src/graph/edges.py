@@ -20,29 +20,37 @@ def conditional_edge_from_intent(state: SchedulerState) -> str:
 
 def conditional_edge_from_weather(state: SchedulerState) -> str:
     """
-    Route from check_weather node (always continue to conflict check).
-    
+    Route from check_weather node based on weather check outcome.
+
     Args:
         state: Current scheduler state
-    
+
     Returns:
-        Next node name: "find_free_slot" (graceful degradation if weather fails)
+        Next node name: "error_recovery" if service failed, "find_free_slot" if success/degraded
     """
-    # Always proceed to conflict check, even if weather check failed
+    # If weather service failed, route to error_recovery for graceful degradation
+    if state.get("error") and "weather" in state.get("error", "").lower():
+        return "error_recovery"
+
+    # Otherwise proceed to conflict check
     return "find_free_slot"
 
 
 def conditional_edge_from_conflict(state: SchedulerState) -> str:
     """
-    Route from find_free_slot node based on conflict detection.
-    
+    Route from find_free_slot node based on conflict detection outcome.
+
     Args:
         state: Current scheduler state
-    
+
     Returns:
-        Next node name: "confirm_or_adjust" to make policy decision
+        Next node name: "error_recovery" if service failed, "confirm_or_adjust" otherwise
     """
-    # Always go to confirm_or_adjust for policy decision
+    # If calendar service failed, route to error_recovery for graceful degradation
+    if state.get("error") and "calendar" in state.get("error", "").lower():
+        return "error_recovery"
+
+    # Otherwise go to confirm_or_adjust for policy decision
     return "confirm_or_adjust"
 
 
@@ -81,18 +89,29 @@ def conditional_edge_from_error(state: SchedulerState) -> str:
     if state.get("event_summary"):
         return "create_event"  # Will pass through (summary already set)
 
-    # If error was cleared (graceful degradation), proceed with what we have
+    # If error was cleared (graceful degradation with degradation_notes), continue to next step
+    if not state.get("error") and state.get("degradation_notes"):
+        # Service failures degraded, continue workflow to check other services
+        # Check if we've already attempted calendar check (no_conflicts key exists)
+        if "no_conflicts" not in state:
+            # Haven't checked calendar yet (weather failed first), continue to find_free_slot
+            return "find_free_slot"
+        else:
+            # Already checked calendar (or both failed), proceed to create_event
+            return "create_event"
+
+    # If error was cleared but no degradation (successfully parsed after retry)
     if not state.get("error") and not state.get("clarification_needed"):
-        # Services degraded but we can continue
         # Route back to check_weather to continue normal flow
         if state.get("city") and state.get("dt"):
             return "check_weather"  # Continue from where we left off
         else:
             return "create_event"  # Can't continue, create error summary
 
-    # If clarification needed and first retry, loop back to parse
-    if state.get("clarification_needed") and retry_count < 2:
-        return "intent_and_slots"
+    # If clarification needed, END the graph and return to user (FR-005)
+    # User will provide additional info in a new request with clarification_count preserved
+    if state.get("clarification_needed"):
+        return "create_event"  # END node (will skip event creation if clarification_needed)
 
     # Otherwise (max retries or unrecoverable), end
     return "create_event"

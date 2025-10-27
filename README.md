@@ -16,33 +16,100 @@ A lightweight, explainable scheduling system that parses natural language inputs
 
 ## Quick Start
 
-### Installation
+### 1. Setup
 
 ```bash
+# Clone repository
+git clone <repository-url>
+cd weather-aware-scheduler
+
+# Copy environment variables
+cp .env.example .env
+
+# Install dependencies (using uv)
+uv sync
+
+# Or using pip
 pip install -e ".[dev]"
 ```
 
-### Schedule a Meeting
+### 2. Run Tests
 
 ```bash
-weather-scheduler schedule "Friday 2pm Taipei meet Alice 60min"
+# Run all tests (mock mode, no API keys needed)
+uv run pytest tests/ --no-cov
+
+# Run with coverage
+uv run pytest tests/ --cov=src --cov-report=term-missing
+
+# Run specific test category
+uv run pytest tests/integration/ -v
 ```
 
-**Output:**
+**Test Status:** 120/125 passing (96%)
+
+### 3. Schedule a Meeting
+
+```bash
+# Basic scheduling
+weather-scheduler schedule "Friday 2pm Taipei meet Alice 60min"
+
+# With verbose output
+weather-scheduler schedule "Friday 2pm Taipei meet Alice 60min" --verbose
+
+# JSON output for automation
+weather-scheduler schedule "Friday 2pm Taipei meet Alice 60min" --json
+```
+
+**Example Output:**
 ```
 ✓ Event Created
 
 Meeting scheduled in Taipei
 Reason: No conflicts detected, weather conditions acceptable
+Notes: Clear weather expected
+
+Event ID: mock-event-a1b2c3d4
+Time: Friday, 2025-10-24 at 2:00 PM
+Duration: 60 minutes
+Attendees: Alice
 ```
 
-### Generate Workflow Visualization
+### 4. Generate Workflow Visualization
 
 ```bash
+# Generate flow diagrams
 weather-scheduler visualize
+
+# Specify output directory
+weather-scheduler visualize --output docs/diagrams
 ```
 
 This creates `graph/flow.mermaid` and `graph/flow.dot` showing the decision flow.
+
+### 5. Environment Variables
+
+The system uses `.env` for configuration. Key variables:
+
+- `MOCK_MODE=true`: Use mock tools (no API keys needed, perfect for testing)
+- `AGENT_MODE=rule_engine`: Use LangGraph (recommended) or `multi_agent` for Microsoft Agent Framework
+- `OPENAI_API_KEY`: Only needed if MOCK_MODE=false
+- `ASCII_ONLY=true`: Use ASCII icons if Unicode rendering fails on Windows
+
+**For Testing (No API Keys Required):**
+```bash
+# .env file
+MOCK_MODE=true
+AGENT_MODE=rule_engine
+```
+
+**For Production:**
+```bash
+# .env file
+MOCK_MODE=false
+OPENAI_API_KEY=sk-your-actual-key-here
+AGENT_MODE=rule_engine
+```
 
 ## User Stories
 

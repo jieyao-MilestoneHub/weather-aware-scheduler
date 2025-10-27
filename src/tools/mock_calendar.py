@@ -168,7 +168,7 @@ class MockCalendarTool(CalendarTool):
         start_search: dt_type,
         duration_min: int,
         search_window_hours: int = 8
-    ) -> dt_type | None:
+    ) -> dict:
         """Find the next available free slot within search window.
 
         Args:
@@ -177,7 +177,16 @@ class MockCalendarTool(CalendarTool):
             search_window_hours: How many hours to search
 
         Returns:
-            Next available datetime, or None if none found
+            Dictionary with structure:
+            {
+                "status": "available" | "conflict",
+                "conflict_details": dict | None,
+                "next_available": datetime | None,
+                "candidates": list[datetime]
+            }
+
+        Raises:
+            CalendarServiceError: If raise_on_error=True
         """
         if self.raise_on_error:
             raise CalendarServiceError("Mock calendar service unavailable")
@@ -185,16 +194,44 @@ class MockCalendarTool(CalendarTool):
         # Search in 30-minute increments
         current = start_search
         end_search = start_search + timedelta(hours=search_window_hours)
+        candidates = []
 
         while current < end_search:
             conflicts = self.check_conflicts(current, duration_min)
             if not conflicts:
-                return current
+                # Found a free slot - add to candidates
+                candidates.append(current)
+
+                # Return first free slot as next_available
+                if len(candidates) == 1:
+                    next_available = current
+
+                # Collect up to 3 candidates
+                if len(candidates) >= 3:
+                    break
 
             # Move to next 30-minute slot
             current += timedelta(minutes=30)
 
-        return None
+        # Return result in contract format
+        if candidates:
+            return {
+                "status": "available",
+                "conflict_details": {},
+                "next_available": candidates[0],
+                "candidates": candidates[:3]
+            }
+        else:
+            # No free slots found in search window
+            return {
+                "status": "conflict",
+                "conflict_details": {
+                    "reason": "No free slots available in search window",
+                    "search_window_hours": search_window_hours
+                },
+                "next_available": None,
+                "candidates": []
+            }
 
     def _generate_candidates(self, conflict_dt: dt_type, duration: int) -> list[dt_type]:
         """Generate 3 alternative time slots after conflict.

@@ -109,20 +109,23 @@ class TestMockCalendarTool:
 
     @freeze_time("2025-10-13 10:00:00")
     def test_find_free_slot_returns_valid_time(self):
-        """find_free_slot should return a datetime without conflicts."""
+        """find_free_slot should return a dict with available slot."""
         tool = MockCalendarTool()
 
         # Looking for slot on Oct 17 starting from 9:00
-        free_slot = tool.find_free_slot(
+        result = tool.find_free_slot(
             start_search=datetime(2025, 10, 17, 9, 0),
             duration_min=60,
             search_window_hours=8
         )
 
-        assert free_slot is not None
-        assert isinstance(free_slot, datetime)
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result["status"] == "available"
+        assert result["next_available"] is not None
 
         # Verify the free slot has no conflicts
+        free_slot = result["next_available"]
         conflicts = tool.check_conflicts(free_slot, duration_min=60)
         assert conflicts == []
 
@@ -132,13 +135,16 @@ class TestMockCalendarTool:
         tool = MockCalendarTool()
 
         # Start search at busy time (15:00)
-        free_slot = tool.find_free_slot(
+        result = tool.find_free_slot(
             start_search=datetime(2025, 10, 17, 15, 0),
             duration_min=60,
             search_window_hours=8
         )
 
         # Should find a slot after the busy window (15:30 or later)
+        assert result is not None
+        assert result["status"] == "available"
+        free_slot = result["next_available"]
         assert free_slot is not None
         # Verify no conflicts at found slot
         conflicts = tool.check_conflicts(free_slot, duration_min=60)
@@ -149,29 +155,35 @@ class TestMockCalendarTool:
         """find_free_slot should respect the search window limit."""
         tool = MockCalendarTool()
 
-        # Very narrow search window might return None if no slot found
-        free_slot = tool.find_free_slot(
+        # Very narrow search window might return conflict status if no slot found
+        result = tool.find_free_slot(
             start_search=datetime(2025, 10, 17, 15, 0),
             duration_min=60,
             search_window_hours=1  # Only 1 hour to search
         )
 
-        # Within the mock's behavior, should either find slot or return None
+        # Within the mock's behavior, should return dict with status
+        assert isinstance(result, dict)
+        assert "status" in result
         # (depends on mock implementation details)
-        if free_slot:
-            assert isinstance(free_slot, datetime)
+        if result.get("next_available"):
+            assert isinstance(result["next_available"], datetime)
 
     @freeze_time("2025-10-13 10:00:00")
     def test_find_free_slot_various_durations_15min(self):
         """find_free_slot should work with 15 minute duration."""
         tool = MockCalendarTool()
 
-        free_slot = tool.find_free_slot(
+        result = tool.find_free_slot(
             start_search=datetime(2025, 10, 17, 9, 0),
             duration_min=15,
             search_window_hours=8
         )
 
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result["status"] == "available"
+        free_slot = result["next_available"]
         assert free_slot is not None
         conflicts = tool.check_conflicts(free_slot, duration_min=15)
         assert conflicts == []
@@ -181,12 +193,16 @@ class TestMockCalendarTool:
         """find_free_slot should work with 120 minute duration."""
         tool = MockCalendarTool()
 
-        free_slot = tool.find_free_slot(
+        result = tool.find_free_slot(
             start_search=datetime(2025, 10, 17, 9, 0),
             duration_min=120,
             search_window_hours=8
         )
 
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result["status"] == "available"
+        free_slot = result["next_available"]
         assert free_slot is not None
         conflicts = tool.check_conflicts(free_slot, duration_min=120)
         assert conflicts == []
@@ -258,13 +274,16 @@ class TestMockToolIntegration:
         # Search for good slot on Oct 17
         search_start = datetime(2025, 10, 17, 9, 0)
 
-        # Find free calendar slot
-        free_slot = calendar_tool.find_free_slot(
+        # Find free calendar slot (returns dict)
+        result = calendar_tool.find_free_slot(
             start_search=search_start,
             duration_min=60,
             search_window_hours=8
         )
 
+        assert result is not None
+        assert result["status"] == "available"
+        free_slot = result["next_available"]
         assert free_slot is not None
 
         # Check if it's also good weather

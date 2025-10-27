@@ -4,7 +4,7 @@ from datetime import datetime as dt_type
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ActionType(str, Enum):
@@ -25,6 +25,8 @@ class EventStatus(str, Enum):
 
 class PolicyDecision(BaseModel):
     """Decision made by the policy/adjustment logic."""
+    model_config = ConfigDict(use_enum_values=True)
+
     action: ActionType = Field(..., description="Action to take")
     reason: str = Field(..., description="Explanation for the decision")
     notes: str | None = Field(None, description="Additional notes or warnings")
@@ -33,13 +35,11 @@ class PolicyDecision(BaseModel):
         description="Adjustment details (time shifts, indoor hints, candidates)"
     )
 
-    class Config:
-        """Pydantic configuration."""
-        use_enum_values = True
-
 
 class EventSummary(BaseModel):
     """Final summary of the scheduling operation."""
+    model_config = ConfigDict(use_enum_values=True)
+
     status: EventStatus = Field(..., description="Overall status")
     summary_text: str = Field(..., description="Human-readable summary")
     reason: str = Field(..., description="Reason for the outcome")
@@ -54,7 +54,3 @@ class EventSummary(BaseModel):
         description="Suggested alternative time (weather/conflict adjustment)"
     )
     event_id: str | None = Field(None, description="Created event ID (if successful)")
-
-    class Config:
-        """Pydantic configuration."""
-        use_enum_values = True

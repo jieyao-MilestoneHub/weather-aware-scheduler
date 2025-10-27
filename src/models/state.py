@@ -31,6 +31,7 @@ class SchedulerState(TypedDict, total=False):
     error: str | None
     clarification_needed: str | None
     retry_count: int
+    clarification_count: int  # Track clarification attempts (max 1 per FR-005)
     degradation_notes: list[str] | None  # Service failure warnings
 
     # Final output

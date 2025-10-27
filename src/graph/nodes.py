@@ -3,13 +3,14 @@
 from datetime import datetime as dt_type, timedelta
 from typing import Any
 
-from src.models.entities import RiskCategory, Slot
+from src.models.entities import RiskCategory, Slot, WeatherCondition
 from src.models.outputs import ActionType, EventStatus, EventSummary, PolicyDecision
 from src.models.state import SchedulerState
 from src.services.parser import parse_natural_language, ParseError
 from src.services.validator import validate_slot, ValidationError
 from src.tools.base import CalendarTool, WeatherTool, CalendarServiceError, WeatherServiceError
 from src.lib.config import load_config
+from src.lib.retry import retry
 
 
 # Global tool instances (will be configured via dependency injection)
@@ -29,18 +30,36 @@ def configure_tools(weather_tool: WeatherTool, calendar_tool: CalendarTool):
     _calendar_tool = calendar_tool
 
 
+# Retry-wrapped tool calls for resilience (FR-019, FR-020)
+@retry(max_attempts=2, retry_delay=0.5, exceptions=(WeatherServiceError,))
+def _get_forecast_with_retry(city: str, dt: dt_type) -> WeatherCondition | None:
+    """Get weather forecast with automatic retry on failure."""
+    if _weather_tool is None:
+        return None
+    return _weather_tool.get_forecast(city, dt)
+
+
+@retry(max_attempts=2, retry_delay=0.5, exceptions=(CalendarServiceError,))
+def _check_availability_with_retry(dt: dt_type, duration_min: int) -> dict | None:
+    """Check calendar availability with automatic retry on failure."""
+    if _calendar_tool is None:
+        return None
+    return _calendar_tool.check_slot_availability(dt, duration_min)
+
+
 def intent_and_slots_node(state: SchedulerState) -> SchedulerState:
     """Parse user input and extract slot information.
 
     Args:
-        state: Current state with user_input
+        state: Current state with user_input or input_text
 
     Returns:
         Updated state with parsed city, dt, duration_min, attendees
     """
     try:
-        # Parse natural language input
-        slot = parse_natural_language(state["input_text"])
+        # Parse natural language input (support both input_text and user_input for compatibility)
+        user_text = state.get("input_text") or state.get("user_input", "")
+        slot = parse_natural_language(user_text)
 
         # Validate the parsed slot
         validate_slot(slot)
@@ -72,26 +91,24 @@ def check_weather_node(state: SchedulerState) -> SchedulerState:
     Returns:
         Updated state with weather info and rain_risk
     """
-    if not _weather_tool:
-        state["error"] = "Weather tool not configured"
-        return state
-
     # Skip if we have parsing errors
     if state.get("error"):
         return state
 
-    try:
-        weather = _weather_tool.get_forecast(state["city"], state["dt"])
+    # Use retry-wrapped function (returns None on failure after retries)
+    weather = _get_forecast_with_retry(state["city"], state["dt"])
 
+    if weather is None:
+        # Graceful degradation: Continue without weather info
+        state["error"] = "Weather service error after retries"
+        # Error recovery node will handle degradation
+    else:
         state["weather"] = {
             "prob_rain": weather.prob_rain,
             "risk_category": weather.risk_category.value,
             "description": weather.description
         }
         state["rain_risk"] = weather.risk_category.value
-
-    except WeatherServiceError as e:
-        state["error"] = f"Weather service error: {str(e)}"
 
     return state
 
@@ -108,49 +125,43 @@ def find_free_slot_node(state: SchedulerState) -> SchedulerState:
     Returns:
         Updated state with conflict info and suggested_time if needed
     """
-    if not _calendar_tool:
-        state["error"] = "Calendar tool not configured"
-        return state
-
-    if not _weather_tool:
-        state["error"] = "Weather tool not configured"
-        return state
-
     # Skip if we have previous errors
     if state.get("error"):
         return state
 
-    try:
-        # Check if requested slot has conflicts
-        result = _calendar_tool.check_slot_availability(state["dt"], state["duration_min"])
+    # Use retry-wrapped function (returns None on failure after retries)
+    result = _check_availability_with_retry(state["dt"], state["duration_min"])
 
-        if result["status"] == "conflict":
-            state["no_conflicts"] = False
-            state["conflicts"] = [result["conflict_details"]]
-            state["proposed"] = result.get("candidates", [])
-        else:
-            state["no_conflicts"] = True
-            state["conflicts"] = []
+    if result is None:
+        # Graceful degradation: Continue without conflict check
+        state["error"] = "Calendar service error after retries"
+        # Error recovery node will handle degradation
+        return state
 
-        # Check if we need to find alternative due to weather or conflicts
-        rain_risk = state.get("rain_risk", "low")
-        needs_alternative = (
-            rain_risk == RiskCategory.HIGH.value or
-            not state.get("no_conflicts", True)
+    if result["status"] == "conflict":
+        state["no_conflicts"] = False
+        state["conflicts"] = [result["conflict_details"]]
+        state["proposed"] = result.get("candidates", [])
+    else:
+        state["no_conflicts"] = True
+        state["conflicts"] = []
+
+    # Check if we need to find alternative due to weather or conflicts
+    rain_risk = state.get("rain_risk", "low")
+    needs_alternative = (
+        rain_risk == RiskCategory.HIGH.value or
+        not state.get("no_conflicts", True)
+    )
+
+    if needs_alternative:
+        # Search for alternative slot with good weather and no conflicts
+        suggested = _find_weather_aware_slot(
+            state["dt"],
+            state["duration_min"],
+            search_hours=8
         )
-
-        if needs_alternative:
-            # Search for alternative slot with good weather and no conflicts
-            suggested = _find_weather_aware_slot(
-                state["dt"],
-                state["duration_min"],
-                search_hours=8
-            )
-            if suggested:
-                state["suggested_time"] = suggested
-
-    except (CalendarServiceError, WeatherServiceError) as e:
-        state["error"] = f"Service error: {str(e)}"
+        if suggested:
+            state["suggested_time"] = suggested
 
     return state
 
@@ -175,21 +186,17 @@ def _find_weather_aware_slot(
     end_search = start_dt + timedelta(hours=search_hours)
 
     while current < end_search:
-        # Check weather at this slot
-        try:
-            weather = _weather_tool.get_forecast("", current)  # City not needed for mock
-            has_good_weather = weather.risk_category != RiskCategory.HIGH
+        # Check weather at this slot (with retry)
+        weather = _get_forecast_with_retry("", current)  # City not needed for mock
+        has_good_weather = weather and weather.risk_category != RiskCategory.HIGH
 
-            # Check calendar availability
-            result = _calendar_tool.check_slot_availability(current, duration_min)
-            has_no_conflicts = result["status"] == "available"
+        # Check calendar availability (with retry)
+        result = _check_availability_with_retry(current, duration_min)
+        has_no_conflicts = result and result["status"] == "available"
 
-            # If both conditions met, return this slot
-            if has_good_weather and has_no_conflicts:
-                return current
-
-        except (WeatherServiceError, CalendarServiceError):
-            pass  # Skip this slot if service errors
+        # If both conditions met, return this slot
+        if has_good_weather and has_no_conflicts:
+            return current
 
         # Move to next 30-minute slot
         current += timedelta(minutes=30)
@@ -268,9 +275,14 @@ def create_event_node(state: SchedulerState) -> SchedulerState:
         state["error"] = "Calendar tool not configured"
         return state
 
-    # Skip if we have previous errors
-    if state.get("error"):
-        # Create error summary
+    # If clarification needed, skip event creation and return state to user (FR-005)
+    if state.get("clarification_needed"):
+        return state
+
+    # Check if we have errors that should stop event creation
+    # Note: Service failures with degradation_notes should continue, not stop
+    if state.get("error") and not state.get("degradation_notes"):
+        # Only stop for non-recoverable errors (parsing failures, etc.)
         state["event_summary"] = EventSummary(
             status=EventStatus.ERROR,
             summary_text="Failed to schedule event",
@@ -279,8 +291,22 @@ def create_event_node(state: SchedulerState) -> SchedulerState:
         ).model_dump()
         return state
 
+    # Clear error if we have degradation notes (service failures that can be worked around)
+    if state.get("degradation_notes"):
+        state["error"] = None
+
     policy_decision = state.get("policy_decision", {})
     action = policy_decision.get("action")
+
+    # If no policy decision but we have degradation notes, create event anyway (degraded mode)
+    if not action and state.get("degradation_notes"):
+        action = ActionType.CREATE.value
+        policy_decision = {
+            "action": ActionType.CREATE.value,
+            "reason": "Event created with service degradation",
+            "notes": None,
+            "adjustments": {}
+        }
 
     # Only create if action is CREATE
     if action == ActionType.CREATE.value:
@@ -347,10 +373,10 @@ def error_recovery_node(state: SchedulerState) -> SchedulerState:
     """Handle errors with one-shot clarification and graceful degradation.
 
     Implements T081: Comprehensive error recovery with:
-    - One-shot clarification for missing/ambiguous input
+    - One-shot clarification for missing/ambiguous input (FR-005)
     - Graceful degradation for service failures
     - Format examples on second failure
-    - Maximum 2 retry attempts
+    - Maximum 1 clarification attempt per FR-005
 
     Args:
         state: Current state with error or clarification_needed
@@ -361,9 +387,12 @@ def error_recovery_node(state: SchedulerState) -> SchedulerState:
     state["retry_count"] = state.get("retry_count", 0) + 1
 
     # Case 1: Clarification needed (missing required fields)
-    if state.get("clarification_needed"):
-        if state["retry_count"] == 1:
-            # First attempt: Generate precise follow-up question with examples
+    if state.get("clarification_needed") or (state.get("error") and not ("service" in state.get("error", "").lower())):
+        # Initialize clarification_count if not present
+        clarification_count = state.get("clarification_count", 0)
+
+        if clarification_count == 0:
+            # First clarification: Generate precise follow-up question with examples
             error_msg = state.get("error", "")
 
             # Build specific clarification based on what's missing
@@ -388,24 +417,29 @@ def error_recovery_node(state: SchedulerState) -> SchedulerState:
 
             clarification_text = "Please provide missing information:\n" + "\n".join(clarification_parts)
             state["clarification_needed"] = clarification_text
+            state["clarification_count"] = 1  # Increment to 1
+            state["error"] = None  # Clear error after setting clarification
 
-        else:
-            # Second failure: Provide complete format example and give up
+        elif clarification_count >= 1:
+            # Second failure: Provide complete format example and give up (FR-005: max 1 clarification)
+            error_message = (
+                "Required information missing after clarification attempt. "
+                "Please provide a complete request with: "
+                "Date (e.g. Friday, tomorrow, 2025-10-17), "
+                "Time (e.g. 2pm, 14:00, afternoon), "
+                "Location (e.g. Taipei, New York), "
+                "Duration (e.g. 60min, 1 hour - optional), "
+                "Attendees (e.g. meet Alice, with Bob - optional). "
+                "Example: 'Friday 2pm Taipei meet Alice 60min'"
+            )
             state["event_summary"] = EventSummary(
                 status=EventStatus.ERROR,
                 summary_text="Unable to parse scheduling request",
                 reason="Required information missing after clarification attempt",
-                notes=(
-                    "Please provide a complete request with:\n"
-                    "• Date: Friday, tomorrow, 2025-10-17\n"
-                    "• Time: 2pm, 14:00, afternoon\n"
-                    "• Location: Taipei, New York\n"
-                    "• Duration: 60min, 1 hour (optional)\n"
-                    "• Attendees: meet Alice, with Bob (optional)\n\n"
-                    "Example: 'Friday 2pm Taipei meet Alice 60min'"
-                )
+                notes=error_message
             ).model_dump()
             state["clarification_needed"] = None
+            state["error"] = error_message
 
     # Case 2: Service failures (weather/calendar unavailable)
     elif state.get("error") and ("service" in state["error"].lower() or "error" in state["error"].lower()):
@@ -417,11 +451,15 @@ def error_recovery_node(state: SchedulerState) -> SchedulerState:
             state["error"] = None  # Clear error
             state["weather"] = None  # Mark as unavailable
 
-            # Add degradation note to be picked up by create_event
+            # Add degradation note with context to be picked up by create_event
+            city = state.get("city", "your location")
+            dt = state.get("dt")
+            time_context = f" at {dt.strftime('%A %I:%M %p')}" if dt else ""
+
             if not state.get("degradation_notes"):
                 state["degradation_notes"] = []
             state["degradation_notes"].append(
-                "⚠️ Weather service unavailable - manual weather check recommended"
+                f"⚠️ Weather service unavailable - manual weather check recommended for {city}{time_context}"
             )
 
         elif "calendar" in error_msg.lower():
