@@ -18,6 +18,8 @@ dependencies = [
     "openai>=1.0.0",
     "azure-identity>=1.15.0",
     "agent-framework>=1.0.0b251016",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
 ]
 
 [project.optional-dependencies]

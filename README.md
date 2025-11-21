@@ -16,6 +16,10 @@ A lightweight, explainable scheduling system that parses natural language inputs
 
 ## Quick Start
 
+### 0. Web UI (New!)
+
+For a modern web interface, check out the [Web UI Quick Start](QUICKSTART_UI.md).
+
 ### 1. Setup
 
 ```bash
